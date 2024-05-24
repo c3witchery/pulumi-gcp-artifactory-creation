@@ -1,0 +1,10 @@
+name: pulumi-gcp-artifactory-creation
+runtime: go
+description: A minimal Google Cloud Go Pulumi program
+config:
+  gcp:project: r3-ps-test-01
+  gcp:region: us-central1
+  gcp:zone: us-central2-a
+  pulumi:tags:
+    value:
+      pulumi:template: gcp-go
