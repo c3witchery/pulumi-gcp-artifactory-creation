@@ -89,7 +89,7 @@ func main() {
 		tagImages, err := local.NewCommand(ctx, "tagImages",
 			&local.CommandArgs{
 				Create: pulumi.String(
-					"docker tag corda/" + dockerImageName + ":" + tagVersion + " " + newRepositoryPath + "/" + dockerImageName + ":" + tagVersion,
+					"docker tag corda/" + dockerImageName + " " + newRepositoryPath + "/" + dockerImageName + ":" + tagVersion,
 				),
 			},
 			pulumi.DependsOn([]pulumi.Resource{pullImages}))
@@ -102,7 +102,7 @@ func main() {
 		pushImages, err := local.NewCommand(ctx, "pushImages",
 			&local.CommandArgs{
 				Create: pulumi.String(
-					"docker push " + newRepositoryPath + "/" + dockerImageName + ":" + tagVersion,
+					"docker push " + newRepositoryPath + "/corda/" + dockerImageName + ":" + tagVersion,
 				),
 			},
 			pulumi.DependsOn([]pulumi.Resource{tagImages}))
