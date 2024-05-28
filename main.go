@@ -17,7 +17,7 @@ func main() {
 		originatorArtifactRegistryUrl := "corda-ent-docker-stable.software.r3.com"
 		dockerImageName := "corda-ent-crypto-worker"
 		tagVersion := "5.2.0.0"
-		newRepositoryName := "private-docker-repository"
+		newRepositoryName := "private-docker-repo"
 		newRepositoryPath := region + "-docker.pkg.dev/" + gcpProject + "/" + newRepositoryName
 		newRepositoryURL := "https://" + newRepositoryPath
 
@@ -28,7 +28,7 @@ func main() {
 		//New Repository created
 		newRepository, err := artifactregistry.NewRepository(ctx, newRepositoryName, &artifactregistry.RepositoryArgs{
 			Location:     pulumi.String(region),
-			RepositoryId: pulumi.String("private-docker-repo"),
+			RepositoryId: pulumi.String(newRepositoryName),
 			Description:  pulumi.String("Private Docker repository"),
 			Format:       pulumi.String("DOCKER"),
 		})
@@ -72,6 +72,8 @@ func main() {
 		}
 		ctx.Export("dockerLoginToTargetArtifactory", dockerLoginToTargetArtifactory.Stdout)
 
+		//Create a loop for specific image names
+
 		// Function to pull Docker image
 		pullImages, err := local.NewCommand(ctx, "pullImages",
 			&local.CommandArgs{
@@ -89,10 +91,10 @@ func main() {
 		tagImages, err := local.NewCommand(ctx, "tagImages",
 			&local.CommandArgs{
 				Create: pulumi.String(
-					"docker tag corda/" + dockerImageName + " " + newRepositoryPath + "/" + dockerImageName + ":" + tagVersion,
+					"docker tag corda/" + dockerImageName + ":" + tagVersion + " " + newRepositoryPath + "/" + dockerImageName + ":" + tagVersion,
 				),
 			},
-			pulumi.DependsOn([]pulumi.Resource{pullImages}))
+			pulumi.DependsOn([]pulumi.Resource{dockerLoginToTargetArtifactory}))
 		if err != nil {
 			return fmt.Errorf("error tagging image command: %v", err)
 		}
@@ -102,7 +104,7 @@ func main() {
 		pushImages, err := local.NewCommand(ctx, "pushImages",
 			&local.CommandArgs{
 				Create: pulumi.String(
-					"docker push " + newRepositoryPath + "/corda/" + dockerImageName + ":" + tagVersion,
+					"docker push " + newRepositoryPath + "/" + dockerImageName + ":" + tagVersion,
 				),
 			},
 			pulumi.DependsOn([]pulumi.Resource{tagImages}))
