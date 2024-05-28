@@ -15,7 +15,7 @@ func main() {
 		gcpProject := "r3-ps-test-01"
 
 		originatorArtifactRegistryUrl := "corda-ent-docker-stable.software.r3.com"
-		dockerImageName := "corda-ent-crypto-worker"
+		// used for initial testing only :: dockerImageName := "corda-ent-crypto-worker"
 		tagVersion := "5.2.0.0"
 		newRepositoryName := "private-docker-repo"
 		newRepositoryPath := region + "-docker.pkg.dev/" + gcpProject + "/" + newRepositoryName
@@ -72,46 +72,62 @@ func main() {
 		}
 		ctx.Export("dockerLoginToTargetArtifactory", dockerLoginToTargetArtifactory.Stdout)
 
-		//Create a loop for specific image names
+		//Create a loop for specific image range
 
-		// Function to pull Docker image
-		pullImages, err := local.NewCommand(ctx, "pullImages",
-			&local.CommandArgs{
-				Create: pulumi.String(
-					" docker pull " + originatorArtifactRegistryUrl + "/" + dockerImageName + ":" + tagVersion,
-				),
-			},
-			pulumi.DependsOn([]pulumi.Resource{dockerLoginToSourceArtifactory, dockerLoginToTargetArtifactory}))
-		if err != nil {
-			return fmt.Errorf("error pulling image command: %v", err)
-		}
-		ctx.Export("pullImages", pullImages.Stdout)
+		//corda-os-rest-worker" "corda-os-flow-worker"
+		//"corda-os-member-worker" "corda-os-p2p-gateway-worker"
+		//"corda-os-p2p-link-manager-worker" "corda-os-db-worker"
+		//"corda-os-flow-mapper-worker" "corda-os-verification-worker"
+		//"corda-os-persistence-worker" "corda-os-token-selection-worker"
+		//"corda-os-crypto-worker" "corda-os-uniqueness-worker"
+		//"corda-os-plugins"
 
-		//Function to tag docker image
-		tagImages, err := local.NewCommand(ctx, "tagImages",
-			&local.CommandArgs{
-				Create: pulumi.String(
-					"docker tag corda/" + dockerImageName + ":" + tagVersion + " " + newRepositoryPath + "/" + dockerImageName + ":" + tagVersion,
-				),
-			},
-			pulumi.DependsOn([]pulumi.Resource{dockerLoginToTargetArtifactory}))
-		if err != nil {
-			return fmt.Errorf("error tagging image command: %v", err)
-		}
-		ctx.Export("tagImages", tagImages.Stdout)
+		// List of Docker images to pull, tag, and push
+		images := []string{"corda-ent-rest-worker", "corda-ent-flow-worker", "corda-ent-member-worker", "corda-ent-p2p-gateway-worker",
+			"corda-ent-p2p-link-manager-worker", "corda-ent-db-worker", "corda-ent-flow-mapper-worker", "corda-ent-verification-worker",
+			"corda-ent-persistence-worker", "corda-ent-token-selection-worker", "corda-ent-crypto-worker", "corda-ent-uniqueness-worker",
+			"corda-ent-plugins"}
 
-		// Function to push Docker image
-		pushImages, err := local.NewCommand(ctx, "pushImages",
-			&local.CommandArgs{
-				Create: pulumi.String(
-					"docker push " + newRepositoryPath + "/" + dockerImageName + ":" + tagVersion,
-				),
-			},
-			pulumi.DependsOn([]pulumi.Resource{tagImages}))
-		if err != nil {
-			return fmt.Errorf("error pushing image command: %v", err)
+		for _, imagesName := range images {
+			// Function to pull Docker image
+			pullImage, err := local.NewCommand(ctx, "pullImage-"+imagesName,
+				&local.CommandArgs{
+					Create: pulumi.String(
+						" docker pull " + originatorArtifactRegistryUrl + "/" + imagesName + ":" + tagVersion,
+					),
+				},
+				pulumi.DependsOn([]pulumi.Resource{dockerLoginToSourceArtifactory, dockerLoginToTargetArtifactory}))
+			if err != nil {
+				return fmt.Errorf("error pulling image command: %v", err)
+			}
+			ctx.Export("pullImage", pullImage.Stdout)
+
+			//Function to tag docker image
+			tagImage, err := local.NewCommand(ctx, "tagImage-"+imagesName,
+				&local.CommandArgs{
+					Create: pulumi.String(
+						"docker tag corda/" + imagesName + ":" + tagVersion + " " + newRepositoryPath + "/" + imagesName + ":" + tagVersion,
+					),
+				},
+				pulumi.DependsOn([]pulumi.Resource{pullImage}))
+			if err != nil {
+				return fmt.Errorf("error tagging image command: %v", err)
+			}
+			ctx.Export("tagImage", tagImage.Stdout)
+
+			// Function to push Docker image
+			pushImage, err := local.NewCommand(ctx, "pushImage-"+imagesName,
+				&local.CommandArgs{
+					Create: pulumi.String(
+						"docker push " + newRepositoryPath + "/" + imagesName + ":" + tagVersion,
+					),
+				},
+				pulumi.DependsOn([]pulumi.Resource{tagImage}))
+			if err != nil {
+				return fmt.Errorf("error pushing image command: %v", err)
+			}
+			ctx.Export("pushImages", pushImage.Stdout)
 		}
-		ctx.Export("pushImages", pushImages.Stdout)
 
 		return nil
 	})
