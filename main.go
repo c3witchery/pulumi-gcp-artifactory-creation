@@ -2,13 +2,6 @@ package main
 
 import (
 	"fmt"
-	"unicode"
-
-	"archive/tar"
-	"compress/gzip"
-	"io"
-	"net/http"
-	"os"
 
 	"github.com/pulumi/pulumi-command/sdk/go/command/local"
 	"github.com/pulumi/pulumi-gcp/sdk/v7/go/gcp/artifactregistry"
@@ -25,7 +18,6 @@ func main() {
 		stagingPath := "https://staging.download.corda.net/c5-release-pack/20ede3c6-29c0-11ed-966d-b7c36748b9f6-RC02/corda-ent-worker-images-RC02.tar.gz"
 
 		tagVersion := "5.2.1.0-RC02"
-		isReleased := hasLitteral(tagVersion)
 
 		newRepositoryName := "private-docker-repo"
 		newRepositoryPath := region + "-docker.pkg.dev/" + gcpProject + "/" + newRepositoryName
@@ -34,6 +26,9 @@ func main() {
 		// Source Artifactory credentials
 		sourceArtifactoryUserName := "$CORDA_ARTIFACTORY_USERNAME"
 		sourceArtifactoryPassword := "$CORDA_ARTIFACTORY_PASSWORD"
+
+		//local load for non-released images
+		localSystemPath := "/tmp/docker-images/"
 
 		//New Repository created
 		newRepository, err := artifactregistry.NewRepository(ctx, newRepositoryName, &artifactregistry.RepositoryArgs{
@@ -71,12 +66,6 @@ func main() {
 		}
 		ctx.Export("dockerLoginToSourceArtifactory", dockerLoginToSourceArtifactory.Stdout)
 
-		//download and extract tgz file
-		//destination directory
-		destDir := "/tmp/docker-images/" + newRepositoryName + "/"
-		downloadAndExtract(isReleased, stagingPath, destDir)
-		ctx.Export("downloadAndExtract", pulumi.String("Downloaded and Extracted to: "+destDir))
-
 		//docker login to Targegt Artifactory
 		dockerLoginToTargetArtifactory, err := local.NewCommand(ctx, "dockerLoginToTargetArtifactory",
 			&local.CommandArgs{
@@ -90,6 +79,37 @@ func main() {
 		}
 		ctx.Export("dockerLoginToTargetArtifactory", dockerLoginToTargetArtifactory.Stdout)
 
+		//Create local directory
+		destDir := localSystemPath + newRepositoryName + "/"
+		createLocalDirectory, err := local.NewCommand(ctx, "createLocalDirectory", &local.CommandArgs{
+			Create: pulumi.String(" mkdir -p " + destDir + " \n " + "chmod +x " + destDir + " \n "),
+		}, pulumi.DependsOn([]pulumi.Resource{newRepository}))
+		if err != nil {
+			return fmt.Errorf("error with creation of local directory for the docker images from Staging: %v", err)
+		}
+		ctx.Export("createLocalDirectory", createLocalDirectory.Stdout)
+
+		//Download and extract tgz file
+		downloadTar, err := local.NewCommand(ctx, "download-tar", &local.CommandArgs{
+			Create: pulumi.String("wget " + stagingPath + " -r -P " + destDir),
+		},
+			pulumi.DependsOn([]pulumi.Resource{createLocalDirectory}))
+		if err != nil {
+			return fmt.Errorf("error with downloading the docker images via Staging: %v", err)
+		}
+		ctx.Export("downloadTar", downloadTar.Stdout)
+
+		//// Load the local image
+		//// this has to be tailored to a tgz local file downloaded from Staging
+		loadImage, err := local.NewCommand(ctx, "loadImage", &local.CommandArgs{
+			Create: pulumi.String("docker load -i " + destDir + "staging.download.corda.net/c5-release-pack/20ede3c6-29c0-11ed-966d-b7c36748b9f6-RC02/corda-ent-worker-images-RC02.tar.gz"),
+		},
+			pulumi.DependsOn([]pulumi.Resource{downloadTar}))
+		if err != nil {
+			return fmt.Errorf("error loading image command: %v", err)
+		}
+		ctx.Export("loadImage", loadImage.Stdout)
+
 		// List of Docker images to pull, tag, and push
 		images := []string{"corda-ent-rest-worker", "corda-ent-flow-worker", "corda-ent-member-worker", "corda-ent-p2p-gateway-worker",
 			"corda-ent-p2p-link-manager-worker", "corda-ent-db-worker", "corda-ent-flow-mapper-worker", "corda-ent-verification-worker",
@@ -101,17 +121,32 @@ func main() {
 
 			// Function to pull Docker image if it is released from source Artifactory
 			//otherwise it look for the downloaded and extracted version from Staging
-			pullOrLoadImage, err := local.NewCommand(ctx, "pull-or-load-image-"+imagesName,
+			pullImage, err := local.NewCommand(ctx, "pull-image-"+imagesName,
 				&local.CommandArgs{
 					Create: pulumi.String(
-						" docker " + pullOrLoad(isReleased) + " " + dynamicOriginalRepositoryPath(isReleased) + imagesName + ":" + tagVersion,
+						" docker pull " + originatorArtifactRegistryUrl + "/" + imagesName + ":" + tagVersion,
 					),
 				},
 				pulumi.DependsOn([]pulumi.Resource{dockerLoginToTargetArtifactory}))
 			if err != nil {
 				return fmt.Errorf("error pulling image command: %v", err)
 			}
-			ctx.Export("pullOrLoadImage", pullOrLoadImage.Stdout)
+			ctx.Export("pullImage", pullImage.Stdout)
+
+			//// build the local image if isReleased set to false
+			//// this has to be tailored to OCI Registry syntax
+			//// oras is assumed to be installed here
+			// loadImage, err := local.NewCommand(ctx, "loadImage"+imagesName, &local.CommandArgs{
+			// 	Create: pulumi.String("oras pull --oci-layout " + destDir + "corda/" + imagesName + ":" + tagVersion),
+			// 	Triggers: pulumi.Array{
+			// 		pulumi.Bool(!isReleased),
+			// 	},
+			// },
+			// 	pulumi.DependsOn([]pulumi.Resource{pullImage}))
+			// if err != nil {
+			// 	return fmt.Errorf("error loading image command: %v", err)
+			// }
+			// ctx.Export("loadImage", loadImage.Stdout)
 
 			//Function to tag docker image
 			tagImage, err := local.NewCommand(ctx, "tagImage-"+imagesName,
@@ -119,7 +154,7 @@ func main() {
 					Create: pulumi.String(
 						"docker tag corda/" + imagesName + ":" + tagVersion + " " + newRepositoryPath + "/" + imagesName + ":" + tagVersion,
 					),
-				}, pulumi.DependsOn([]pulumi.Resource{pullOrLoadImage}))
+				}, pulumi.DependsOn([]pulumi.Resource{pullImage, loadImage}))
 			if err != nil {
 				return fmt.Errorf("error tagging image command: %v", err)
 			}
@@ -141,80 +176,4 @@ func main() {
 
 		return nil
 	})
-}
-
-func pullOrLoad(isReleased bool) string {
-	if isReleased {
-		return " pull "
-	} else {
-		return " load -i "
-	}
-}
-
-func hasLitteral(tagVersion string) bool {
-	for _, r := range tagVersion {
-		if unicode.IsLetter(r) {
-			return true
-		}
-	}
-	return false
-}
-
-func dynamicOriginalRepositoryPath(isReleased bool) string {
-	if isReleased {
-		originatorArtifactRegistryUrl := "corda-ent-docker-stable.software.r3.com/"
-		return originatorArtifactRegistryUrl
-	} else {
-		return ""
-	}
-
-}
-
-func downloadAndExtract(isReleased bool, stagingPath string, destDir string) error {
-	if !isReleased {
-		resp, err := http.Get(stagingPath)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		gzReader, err := gzip.NewReader(resp.Body)
-		if err != nil {
-			return err
-		}
-		defer gzReader.Close()
-
-		tarReader := tar.NewReader(gzReader)
-		for {
-			header, err := tarReader.Next()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return err
-			}
-
-			target := destDir + "/" + header.Name
-			switch header.Typeflag {
-			case tar.TypeDir:
-				if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
-					return err
-				}
-			case tar.TypeReg:
-				file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, os.FileMode(header.Mode))
-				if err != nil {
-					return err
-				}
-				if _, err := io.Copy(file, tarReader); err != nil {
-					return err
-				}
-				file.Close()
-			default:
-				return fmt.Errorf("unsupported header type: %v", header)
-			}
-		}
-		return nil
-
-	}
-	return nil
 }
