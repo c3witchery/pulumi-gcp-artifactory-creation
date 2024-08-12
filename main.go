@@ -15,9 +15,13 @@ func main() {
 		gcpProject := "r3-ps-test-01"
 
 		originatorArtifactRegistryUrl := "corda-ent-docker-stable.software.r3.com"
-		stagingPath := "https://staging.download.corda.net/c5-release-pack/20ede3c6-29c0-11ed-966d-b7c36748b9f6-RC02/corda-ent-worker-images-RC02.tar.gz"
+		// Staging path for Corda ENT 5.2.1-RC2
+		//stagingPath := "https://staging.download.corda.net/c5-release-pack/20ede3c6-29c0-11ed-966d-b7c36748b9f6-RC02/corda-ent-worker-images-RC02.tar.gz"
+		// Staging path for Corda ENT 5.2.1-GA
+		//stagingPath := "https://staging.download.corda.net/c5-release-pack/20ede3c6-29c0-11ed-966d-b7c36748b9f6-5.2.1-GA/corda-ent-worker-images-5.2.1-GA.tar.gz"
+		// docker pull corda/corda-enterprise:4.12-zulu-openjdk-alpine
 
-		tagVersion := "5.2.1.0-RC02"
+		tagVersion := "4.12-zulu-openjdk-alpine"
 
 		newRepositoryName := "private-docker-repo"
 		newRepositoryPath := region + "-docker.pkg.dev/" + gcpProject + "/" + newRepositoryName
@@ -28,7 +32,7 @@ func main() {
 		sourceArtifactoryPassword := "$CORDA_ARTIFACTORY_PASSWORD"
 
 		//local load for non-released images
-		localSystemPath := "/tmp/docker-images/"
+		localSystemPath := "/tmp/"
 
 		//New Repository created
 		newRepository, err := artifactregistry.NewRepository(ctx, newRepositoryName, &artifactregistry.RepositoryArgs{
@@ -80,7 +84,7 @@ func main() {
 		ctx.Export("dockerLoginToTargetArtifactory", dockerLoginToTargetArtifactory.Stdout)
 
 		//Create local directory
-		destDir := localSystemPath + newRepositoryName + "/"
+		destDir := localSystemPath + "docker-images/"
 		createLocalDirectory, err := local.NewCommand(ctx, "createLocalDirectory", &local.CommandArgs{
 			Create: pulumi.String(" mkdir -p " + destDir + " \n " + "chmod +x " + destDir + " \n "),
 		}, pulumi.DependsOn([]pulumi.Resource{newRepository}))
@@ -89,32 +93,30 @@ func main() {
 		}
 		ctx.Export("createLocalDirectory", createLocalDirectory.Stdout)
 
-		//Download and extract tgz file
-		downloadTar, err := local.NewCommand(ctx, "download-tar", &local.CommandArgs{
-			Create: pulumi.String("wget " + stagingPath + " -r -P " + destDir),
-		},
-			pulumi.DependsOn([]pulumi.Resource{createLocalDirectory}))
-		if err != nil {
-			return fmt.Errorf("error with downloading the docker images via Staging: %v", err)
-		}
-		ctx.Export("downloadTar", downloadTar.Stdout)
+		// //Download and extract tgz file
+		// downloadTar, err := local.NewCommand(ctx, "download-tar", &local.CommandArgs{
+		// 	Create: pulumi.String("wget " + stagingPath + " -r -P " + destDir),
+		// },
+		// 	pulumi.DependsOn([]pulumi.Resource{createLocalDirectory}))
+		// if err != nil {
+		// 	return fmt.Errorf("error with downloading the docker images via Staging: %v", err)
+		// }
+		// ctx.Export("downloadTar", downloadTar.Stdout)
 
 		//// Load the local image
 		//// this has to be tailored to a tgz local file downloaded from Staging
 		loadImage, err := local.NewCommand(ctx, "loadImage", &local.CommandArgs{
-			Create: pulumi.String("docker load -i " + destDir + "staging.download.corda.net/c5-release-pack/20ede3c6-29c0-11ed-966d-b7c36748b9f6-RC02/corda-ent-worker-images-RC02.tar.gz"),
+			Create: pulumi.String("docker load -i " + destDir + "https://hub.docker.com/"),
 		},
-			pulumi.DependsOn([]pulumi.Resource{downloadTar}))
+			pulumi.DependsOn([]pulumi.Resource{createLocalDirectory}))
+		//pulumi.DependsOn([]pulumi.Resource{downloadTar}))
 		if err != nil {
 			return fmt.Errorf("error loading image command: %v", err)
 		}
 		ctx.Export("loadImage", loadImage.Stdout)
 
 		// List of Docker images to pull, tag, and push
-		images := []string{"corda-ent-rest-worker", "corda-ent-flow-worker", "corda-ent-member-worker", "corda-ent-p2p-gateway-worker",
-			"corda-ent-p2p-link-manager-worker", "corda-ent-db-worker", "corda-ent-flow-mapper-worker", "corda-ent-verification-worker",
-			"corda-ent-persistence-worker", "corda-ent-token-selection-worker", "corda-ent-crypto-worker", "corda-ent-uniqueness-worker",
-			"corda-ent-plugins"}
+		images := []string{"corda/corda-enterprise"}
 
 		//Create a loop for specific image range
 		for _, imagesName := range images {
