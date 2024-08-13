@@ -14,7 +14,8 @@ func main() {
 		region := "us-central1"
 		gcpProject := "r3-ps-test-01"
 
-		originatorArtifactRegistryUrl := "corda-ent-docker-stable.software.r3.com"
+		originatorArtifactRegistryUrl := "docker.io"
+		//originatorArtifactRegistryUrl := "corda-ent-docker-stable.software.r3.com"
 		// Staging path for Corda ENT 5.2.1-RC2
 		//stagingPath := "https://staging.download.corda.net/c5-release-pack/20ede3c6-29c0-11ed-966d-b7c36748b9f6-RC02/corda-ent-worker-images-RC02.tar.gz"
 		// Staging path for Corda ENT 5.2.1-GA
@@ -28,11 +29,8 @@ func main() {
 		newRepositoryURL := "https://" + newRepositoryPath
 
 		// Source Artifactory credentials
-		sourceArtifactoryUserName := "$CORDA_ARTIFACTORY_USERNAME"
-		sourceArtifactoryPassword := "$CORDA_ARTIFACTORY_PASSWORD"
-
-		//local load for non-released images
-		localSystemPath := "/tmp/"
+		// sourceArtifactoryUserName := "$CORDA_ARTIFACTORY_USERNAME"
+		// sourceArtifactoryPassword := "$CORDA_ARTIFACTORY_PASSWORD"
 
 		//New Repository created
 		newRepository, err := artifactregistry.NewRepository(ctx, newRepositoryName, &artifactregistry.RepositoryArgs{
@@ -58,17 +56,17 @@ func main() {
 
 		//check if the release is released to the semi-public artefact repository or has to be downloaded from Staging site
 
-		//docker login
-		dockerLoginToSourceArtifactory, err := local.NewCommand(ctx, "dockerLoginToSourceArtifactory",
-			&local.CommandArgs{
-				Create: pulumi.String(
-					" docker login " + originatorArtifactRegistryUrl + " -u " + sourceArtifactoryUserName + " -p " + sourceArtifactoryPassword,
-				),
-			})
-		if err != nil {
-			return fmt.Errorf("error with docker login from the source artifactory: %v", err)
-		}
-		ctx.Export("dockerLoginToSourceArtifactory", dockerLoginToSourceArtifactory.Stdout)
+		// //docker login
+		// dockerLoginToSourceArtifactory, err := local.NewCommand(ctx, "dockerLoginToSourceArtifactory",
+		// 	&local.CommandArgs{
+		// 		Create: pulumi.String(
+		// 			" docker login " + originatorArtifactRegistryUrl + " -u " + sourceArtifactoryUserName + " -p " + sourceArtifactoryPassword,
+		// 		),
+		// 	})
+		// if err != nil {
+		// 	return fmt.Errorf("error with docker login from the source artifactory: %v", err)
+		// }
+		// ctx.Export("dockerLoginToSourceArtifactory", dockerLoginToSourceArtifactory.Stdout)
 
 		//docker login to Targegt Artifactory
 		dockerLoginToTargetArtifactory, err := local.NewCommand(ctx, "dockerLoginToTargetArtifactory",
@@ -83,37 +81,17 @@ func main() {
 		}
 		ctx.Export("dockerLoginToTargetArtifactory", dockerLoginToTargetArtifactory.Stdout)
 
-		//Create local directory
-		destDir := localSystemPath + "docker-images/"
-		createLocalDirectory, err := local.NewCommand(ctx, "createLocalDirectory", &local.CommandArgs{
-			Create: pulumi.String(" mkdir -p " + destDir + " \n " + "chmod +x " + destDir + " \n "),
-		}, pulumi.DependsOn([]pulumi.Resource{newRepository}))
-		if err != nil {
-			return fmt.Errorf("error with creation of local directory for the docker images from Staging: %v", err)
-		}
-		ctx.Export("createLocalDirectory", createLocalDirectory.Stdout)
-
-		// //Download and extract tgz file
-		// downloadTar, err := local.NewCommand(ctx, "download-tar", &local.CommandArgs{
-		// 	Create: pulumi.String("wget " + stagingPath + " -r -P " + destDir),
+		// //// Load the local image
+		// //// this has to be tailored to a tgz local file downloaded from Staging
+		// loadImage, err := local.NewCommand(ctx, "loadImage", &local.CommandArgs{
+		// 	Create: pulumi.String("docker load -i " + "docker.io/corda/corda-enterprise:" + tagVersion),
 		// },
-		// 	pulumi.DependsOn([]pulumi.Resource{createLocalDirectory}))
+		// 	pulumi.DependsOn([]pulumi.Resource{dockerLoginToTargetArtifactory}))
+		// //pulumi.DependsOn([]pulumi.Resource{downloadTar}))
 		// if err != nil {
-		// 	return fmt.Errorf("error with downloading the docker images via Staging: %v", err)
+		// 	return fmt.Errorf("error loading image command: %v", err)
 		// }
-		// ctx.Export("downloadTar", downloadTar.Stdout)
-
-		//// Load the local image
-		//// this has to be tailored to a tgz local file downloaded from Staging
-		loadImage, err := local.NewCommand(ctx, "loadImage", &local.CommandArgs{
-			Create: pulumi.String("docker load -i " + destDir + "https://hub.docker.com/"),
-		},
-			pulumi.DependsOn([]pulumi.Resource{createLocalDirectory}))
-		//pulumi.DependsOn([]pulumi.Resource{downloadTar}))
-		if err != nil {
-			return fmt.Errorf("error loading image command: %v", err)
-		}
-		ctx.Export("loadImage", loadImage.Stdout)
+		// ctx.Export("loadImage", loadImage.Stdout)
 
 		// List of Docker images to pull, tag, and push
 		images := []string{"corda/corda-enterprise"}
@@ -135,28 +113,13 @@ func main() {
 			}
 			ctx.Export("pullImage", pullImage.Stdout)
 
-			//// build the local image if isReleased set to false
-			//// this has to be tailored to OCI Registry syntax
-			//// oras is assumed to be installed here
-			// loadImage, err := local.NewCommand(ctx, "loadImage"+imagesName, &local.CommandArgs{
-			// 	Create: pulumi.String("oras pull --oci-layout " + destDir + "corda/" + imagesName + ":" + tagVersion),
-			// 	Triggers: pulumi.Array{
-			// 		pulumi.Bool(!isReleased),
-			// 	},
-			// },
-			// 	pulumi.DependsOn([]pulumi.Resource{pullImage}))
-			// if err != nil {
-			// 	return fmt.Errorf("error loading image command: %v", err)
-			// }
-			// ctx.Export("loadImage", loadImage.Stdout)
-
 			//Function to tag docker image
 			tagImage, err := local.NewCommand(ctx, "tagImage-"+imagesName,
 				&local.CommandArgs{
 					Create: pulumi.String(
-						"docker tag corda/" + imagesName + ":" + tagVersion + " " + newRepositoryPath + "/" + imagesName + ":" + tagVersion,
+						"docker tag " + imagesName + ":" + tagVersion + " " + newRepositoryPath + "/" + imagesName + ":" + tagVersion,
 					),
-				}, pulumi.DependsOn([]pulumi.Resource{pullImage, loadImage}))
+				}, pulumi.DependsOn([]pulumi.Resource{pullImage, dockerLoginToTargetArtifactory}))
 			if err != nil {
 				return fmt.Errorf("error tagging image command: %v", err)
 			}
