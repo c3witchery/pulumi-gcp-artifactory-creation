@@ -12,11 +12,10 @@ func main() {
 	pulumi.Run(func(ctx *pulumi.Context) error {
 
 		region := "us-central1"
-		gcpProject := "r3-ps-test-01"
+		gcpProject := ""
 
 		originatorArtifactRegistryUrl := "corda-ent-docker-stable.software.r3.com"
-		stagingPath := "https://staging.download.corda.net/c5-release-pack/20ede3c6-29c0-11ed-966d-b7c36748b9f6-RC02/corda-ent-worker-images-RC02.tar.gz"
-
+		
 		tagVersion := "5.2.1.0-RC02"
 
 		newRepositoryName := "private-docker-repo"
